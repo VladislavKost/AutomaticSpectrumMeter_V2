@@ -1,14 +1,15 @@
-from tkinter import *
+from datetime import datetime
+import numpy as np
+
+from tkinter import filedialog, messagebox, Button, Label, DISABLED
 from tkinter import ttk
-from tkinter.ttk import Separator
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import numpy as np
+
 from openpyxl import Workbook
 from openpyxl.chart import ScatterChart, Reference, Series
-from tkinter import filedialog, messagebox
-from datetime import datetime
+
 from RigolLib import RigolLib
 from ZolixOmniUI.PyZolixOmniUI import ZolixOmniUI
 
@@ -29,11 +30,12 @@ class SpectralMeasurements(ZolixOmniUI):
         super().__init__()
 
     def _check_all_equipment_connected(self):
-        if self.rigol_connected and self.zolix_connected:
+        if self.zolix_connected:
             self._enable_fields_and_buttons()
+        if self.rigol_connected:
+            self._enable_rigol_fields_and_buttons()
 
-    def _enable_fields_and_buttons(self):
-        super()._enable_fields_and_buttons()
+    def _enable_rigol_fields_and_buttons(self):
         self.channels_selection_box.config(state="normal")
 
     def _get_vertical_Rigol_scale(self):
@@ -111,12 +113,12 @@ class SpectralMeasurements(ZolixOmniUI):
         self.style.configure("TSeparator", background="black")
 
         self._create_zolix_connect_UI(start_row=0)
-        Separator(**self.separator_opt).grid(
+        ttk.Separator(**self.separator_opt).grid(
             column=0, row=1, sticky="ew", columnspan=3, padx=5, pady=5
         )
 
         self._create_show_cur_wl_and_grading_UI(start_row=2)
-        Separator(**self.separator_opt).grid(
+        ttk.Separator(**self.separator_opt).grid(
             column=0, row=5, sticky="ew", columnspan=3, padx=5, pady=5
         )
 
@@ -265,42 +267,48 @@ class SpectralMeasurements(ZolixOmniUI):
         self.start_measurement_button.grid_remove()
         self.stop_measurement_button.grid()
 
-        # Включаем интерактивный режим
-        plt.ion()
+        if self.rigol_connected:
+            # Включаем интерактивный режим
+            plt.ion()
 
-        # Создаем объект графика
-        fig = plt.Figure()
-        ax = fig.add_subplot(111)
+            # Создаем объект графика
+            fig = plt.Figure()
+            ax = fig.add_subplot(111)
 
-        # Устанавливаем границы графика
-        ax.set_xlim(self.initial_wl, self.final_wl)
-        max_y_value = self._get_Rigol_oscillograph_max_V()
-        ax.set_ylim(
-            self._get_Rigol_oscillograph_min_V(), self._get_Rigol_oscillograph_max_V()
-        )
+            # Устанавливаем границы графика
+            ax.set_xlim(self.initial_wl, self.final_wl)
+            max_y_value = self._get_Rigol_oscillograph_max_V()
+            ax.set_ylim(
+                self._get_Rigol_oscillograph_min_V(),
+                self._get_Rigol_oscillograph_max_V(),
+            )
 
-        ax.set_xlabel("Длина волны, нм")
-        ax.set_ylabel("Амплитуда, у.е.")
+            ax.set_xlabel("Длина волны, нм")
+            ax.set_ylabel("Амплитуда, у.е.")
 
-        ax.grid(True)
+            ax.grid(True)
+
+            # Формируем первичную линию графика
+            (line1,) = ax.plot(self.x_values, self.y_values, "b-")
+
+            # Добавляем наш график в окно
+            canvas = FigureCanvasTkAgg(fig, master=self.root)
+
+            # Располагаем график в Tkinter окне
+            canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, **self.opts)
 
         # формируем список точек для измерения
         x_range = np.arange(self.initial_wl, self.final_wl + self.step, self.step)
-
-        # Формируем первичную линию графика
-        (line1,) = ax.plot(self.x_values, self.y_values, "b-")
-
-        # Добавляем наш график в окно
-        canvas = FigureCanvasTkAgg(fig, master=self.root)
-
-        # Располагаем график в Tkinter окне
-        canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, **self.opts)
 
         # Пробегаемся по точкам измерения и получаем данные с приборов, и обновляем график
         for x in x_range:
             if self.measuring:
                 # if change_monochromator_wavelength(x):
                 if self._change_monochromator_wavelength(x):
+                    # Если мы не подключены к осциллографу, то пропускаем этот шаг и просто продолжаем менять длину волны на монохроматоре
+                    if not self.rigol_connected:
+                        continue
+
                     self.x_values.append(float(x))
                     new_y_value = self._get_Rigol_oscillograph_average_V()
                     self.y_values.append(new_y_value)
@@ -325,13 +333,14 @@ class SpectralMeasurements(ZolixOmniUI):
         self.stop_measurement_button.grid_remove()
         self.start_measurement_button.grid()
 
-        # save measurement button
-        self._create_save_plot_buttons(start_row=5, start_columnt=3)
+        if self.rigol_connected:
+            # save measurement button
+            self._create_save_plot_buttons(start_row=5, start_columnt=3)
 
-        # Обновляем график
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        self.fig = fig
+            # Обновляем график
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            self.fig = fig
 
     def _set_device_for_Rigol(self, event):
         val = self.rigol_usb_chosen.get()
